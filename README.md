@@ -30,7 +30,8 @@ III). To train a deep learning model, run the following command:
 
 
 IV). To Evaluate the performance of trained  model on "Test dataset", run the following command:
-							Run  "python main.py --opMode 'Test'" 
+							Run  "python main.py --opMode 'Test'". 
+
 V). Output would be like this:
         
         
