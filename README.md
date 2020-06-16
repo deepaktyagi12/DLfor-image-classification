@@ -34,16 +34,14 @@ ________________________________________________________________________________
 								Run  "python main.py --opMode 'Test'". 
 	 V). Output would be like this:. 
 	 
-              1. True Labels [1 0 1 0 0 0 1 0 0 0 1 1 1 0 0 0 1 1 1 1 0 0 1 0 1 0].
-	      
-	      2. Predicted Labels [1 0 1 0 0 0 1 0 0 0 1 1 1 0 0 0 1 1 1 1 0 0 1 0 1 0].
-	      
-	      3. Toatal Accuracy: 1.000000.
-	      4. Confusion matrix: [[14  0].
+              True Labels [1 0 1 0 0 0 1 0 0 0 1 1 1 0 0 0 1 1 1 1 0 0 1 0 1 0].
+	      Predicted Labels [1 0 1 0 0 0 1 0 0 0 1 1 1 0 0 0 1 1 1 1 0 0 1 0 1 0].
+	      Toatal Accuracy: 1.000000.
+	      Confusion matrix: [[14  0].
 	 		           [ 0 12]].
-	      5. Precision: 1.000000.
-	      6. Recall: 1.000000.
-	      7. F1 score: 1.000000.
+	      Precision: 1.000000.
+	      Recall: 1.000000.
+	      F1 score: 1.000000.
 	      
 		True Label:--Defected  Predictive Label:--Defected.
 		True Label:--Healthy   Predictive Label:--Healthy.
