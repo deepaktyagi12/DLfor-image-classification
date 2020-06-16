@@ -32,9 +32,12 @@ ________________________________________________________________________________
 
 	IV). To Evaluate the performance of trained  model on "Test dataset", run the following command:.
 								Run  "python main.py --opMode 'Test'". 
-	IV). Output would be like this:. 
+	 V). Output would be like this:. 
+	 
               1. True Labels [1 0 1 0 0 0 1 0 0 0 1 1 1 0 0 0 1 1 1 1 0 0 1 0 1 0].
+	      
 	      2. Predicted Labels [1 0 1 0 0 0 1 0 0 0 1 1 1 0 0 0 1 1 1 1 0 0 1 0 1 0].
+	      
 	      3. Toatal Accuracy: 1.000000.
 	      4. Confusion matrix: [[14  0].
 	 		           [ 0 12]].
