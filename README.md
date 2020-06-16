@@ -1,4 +1,4 @@
-There are various mathematical or deterministic models which can be used to the defect in the automotive spare parts images. But, in the recent past, deep neural network models have outperformed the other models. This document describes how the deep learning model can be utilized to classify the automotive spare parts images whether the spare part is "Healthy" or "Defected".
+There are various mathematical or deterministic models that can be used to the defect in the automotive spare parts images. But, in the recent past, deep neural network models have outperformed the other models. This document describes how the deep learning model can be utilized to classify the automotive spare parts images whether the spare part is "Healthy" or "Defected".
 ____________________________________________________________________________
 1. Prerequisites:
     Python 3.7
@@ -32,6 +32,8 @@ III). To train a deep learning model, run the following command:
 IV). To Evaluate the performance of trained  model on "Test dataset", run the following command:
 							Run  "python main.py --opMode 'Test'" 
 V). Output would be like this:
+        
+        
         True Labels [1 0 1 0 0 0 1 0 0 0 1 1 1 0 0 0 1 1 1 1 0 0 1 0 1 0]
 	Predicted Labels [1 0 1 0 0 0 1 0 0 0 1 1 1 0 0 0 1 1 1 1 0 0 1 0 1 0]
 	Toatal Accuracy: 1.000000
