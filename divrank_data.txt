@@ -1,0 +1,266 @@
+Information networks are widely used to characterize the relationships between data items such as text documents. Many important retrieval and mining tasks rely on ranking
+the data items based on their centrality or prestige in the network. Beyond prestige, diversity has been recognized as a crucial objective in ranking, aiming at providing a nonredundant and high coverage piece of information in the top
+ranked results. Nevertheless, existing network-based ranking approaches either disregard the concern of diversity, or handle it with non-optimized heuristics, usually based on
+greedy vertex selection. We propose a novel ranking algorithm, DivRank, based on a reinforced random walk in an information network. This model automatically balances the prestige and the diversity
+of the top ranked vertices in a principled way. DivRank not only has a clear optimization explanation, but also well connects to classical models in mathematics and network
+science. We evaluate DivRank using empirical experiments on three different networks as well as a text summarization task. DivRank outperforms existing network-based ranking
+methods in terms of enhancing diversity in prestige.
+import networkx as nx
+import re 
+import itertools
+import operator
+import copy
+import heapq
+import nltk
+from nltk.corpus import stopwords
+from nltk import pos_tag
+import string
+from nltk.corpus import stopwords
+import matplotlib.pyplot as plt
+from networkx import k_core
+from networkx import core_number
+import sys
+import numpy as np
+# import textacy
+from nltk.tokenize import word_tokenize,wordpunct_tokenize
+import networkx.drawing
+# import textacy.keyterms
+from networkx import common_neighbors
+import pandas as pd
+from collections import OrderedDict
+import logging
+LOGGER = logging.getLogger(__name__)
+from typing import Dict
+from operator import itemgetter
+
+def txt_to_sentences(file_title):
+    with open(file_title, "r",encoding='utf-8') as text:
+        text = str(text.read())
+        text=text.lower()
+        text=textacy.preprocess.normalize_whitespace(text)
+        text=textacy.preprocess.fix_bad_unicode(text, normalization=u'NFKC')
+        text=textacy.preprocess.preprocess_text(text, fix_unicode=False, lowercase=False, transliterate=False, no_urls=False,no_phone_numbers=False,no_currency_symbols=False,
+        no_emails=True, no_numbers=False, no_punct=False,no_contractions=False, no_accents=False)
+        text=textacy.preprocess.unpack_contractions(text)
+        nlp_text=textacy.Doc(text).pos_tagged_text
+        return(nlp_text)
+
+def clean_text_simple_by_sents(tok_sent_tagged, my_stopwords, remove_stopwords=True, pos_filtering=True, stemming=True):
+    cleaned_text=[]
+    for i,phrase in enumerate(tok_sent_tagged):
+        tokens=[]
+        for words in enumerate(phrase):
+            if pos_filtering == True:
+                if (words[1][1] == 'NOUN' or words[1][1] == 'ADJ'):
+                    tokens.append(words[1][0])
+            else:
+                tokens.append(words[1][0])   
+        if remove_stopwords:
+            tokens = [token for token in tokens if token not in my_stopwords]
+        if stemming:
+            # apply Porter's stemmer
+            stemmer = nltk.stem.PorterStemmer()
+            tokens_stemmed = list()
+            for token in tokens:
+                tokens_stemmed.append(stemmer.stem(token))
+            tokens = tokens_stemmed
+        cleaned_text.append(tokens)
+    return(cleaned_text)
+def terms_to_graph_sents(clean_txt_sents, w,stopping_end_of_line=0):
+    from_to = {}
+    if(not stopping_end_of_line):
+        extended_clean_txt_sents=[]
+        for sublist in clean_txt_sents:
+            extended_clean_txt_sents.extend(sublist)
+        clean_txt_sents=[extended_clean_txt_sents]
+    for k,sents in enumerate(clean_txt_sents):
+        len_sents=len(sents)
+
+        # create initial complete graph (first w terms)
+        terms_temp = sents[0:min(w,len_sents)]
+        indexes = list(itertools.combinations(range(min(w,len_sents)), r=2))
+        new_edges = []
+        for my_tuple in indexes:
+            new_edges.append(tuple([terms_temp[i] for i in my_tuple]))
+
+        for new_edge in new_edges:
+            if new_edge in from_to:
+                from_to[new_edge] += 1
+            else:
+                from_to[new_edge] = 1
+
+        if(w<=len_sents):
+            # then iterate over the remaining terms
+            for i in range(w, len_sents):
+                considered_term = sents[i] # term to consider
+                terms_temp = sents[(i-w+1):(i+1)] # all terms within sliding window
+
+                # edges to try
+                candidate_edges = []
+                for p in range(w-1):
+                    candidate_edges.append((terms_temp[p],considered_term))
+
+                for try_edge in candidate_edges:
+
+                    if try_edge[1] != try_edge[0]:
+                    # if not self-edge
+
+                        # if edge has already been seen, update its weight
+                        if try_edge in from_to:
+                            from_to[try_edge] += 1
+
+                        # if edge has never been seen, create it and assign it a unit weight     
+                        else:
+                            from_to[try_edge] = 1
+    
+    return(from_to)
+def unweighted_graph(tuples_words_sents_unweighted):
+    G = nx.Graph()
+    G.add_edges_from(tuples_words_sents_unweighted)
+    return(G)
+def weighted_graph(tuples_words_sents_weighted):
+    G = nx.Graph()
+    for keys,values in tuples_words_sents_weighted.items():
+        G.add_edge(keys[0],keys[1],weight=values)
+    return(G)
+def order_dict_best_keywords(G_core_number,nb_keys_terms_needed=10):
+    k_core_keyTerms=sorted(G_core_number, key=G_core_number.get, reverse=True)
+    Kcore_values=[G_core_number[x] for x in k_core_keyTerms[:nb_keys_terms_needed]]
+    return(k_core_keyTerms,Kcore_values)
+
+def rank_nodes_by_divrank(graph, r, lambda_: float = 0.5, alpha: float = 0.5,) -> Dict[str, float]:
+    """
+    Rank nodes in a network using the DivRank algorithm that attempts to
+    balance between node centrality and diversity.
+
+    Args:
+        graph
+        r: The "personalization vector"; by default, ``r = ones(1, n)/n``
+        lambda_: Float in [0.0, 1.0]
+        alpha: Float in [0.0, 1.0] that controls the strength of self-links.
+
+    Returns:
+        Mapping of node to score ordered by descending divrank score
+
+    References:
+        Mei, Q., Guo, J., & Radev, D. (2010, July). Divrank: the interplay of
+        prestige and diversity in information networks. In Proceedings of the
+        16th ACM SIGKDD international conference on Knowledge discovery and data
+        mining (pp. 1009-1018). ACM.
+        http://clair.si.umich.edu/~radev/papers/SIGKDD2010.pdf
+    """
+    # check function arguments
+    if len(graph) == 0:
+        LOGGER.warning("`graph` is empty")
+        return {}
+
+    # specify the order of nodes to use in creating the matrix
+    # and then later recovering the values from the order index
+    nodes_list = [node for node in graph]
+    # create adjacency matrix, i.e.
+    # n x n matrix where entry W_ij is the weight of the edge from V_i to V_j
+    W = nx.to_numpy_matrix(graph, nodelist=nodes_list, weight="weight").A
+    n = W.shape[1]
+    # create flat prior personalization vector if none given
+    if r is None:
+        r = np.array([n * [1 / float(n)]])
+    # Specify some constants
+    max_iter = 1000
+    diff = 1e10
+    tol = 1e-3
+    pr = np.array([n * [1 / float(n)]])
+    # Get p0(v -> u), i.e. transition probability prior to reinforcement
+    tmp = np.reshape(np.sum(W, axis=1), (n, 1))
+    idx_nan = np.flatnonzero(tmp == 0)
+    W0 = W / np.tile(tmp, (1, n))
+    W0[idx_nan, :] = 0
+    del W
+
+    # DivRank algorithm
+    i = 0
+    while i < max_iter and diff > tol:
+        W1 = alpha * W0 * np.tile(pr, (n, 1))
+        W1 = W1 - np.diag(W1[:, 0]) + (1 - alpha) * np.diag(pr[0, :])
+        tmp1 = np.reshape(np.sum(W1, axis=1), (n, 1))
+        P = W1 / np.tile(tmp1, (1, n))
+        P = ((1 - lambda_) * P) + (lambda_ * np.tile(r, (n, 1)))
+        pr_new = np.dot(pr, P)
+        i += 1
+        diff = np.sum(np.abs(pr_new - pr)) / np.sum(pr)
+        pr = pr_new
+
+    # sort nodes by divrank score
+    results = sorted(
+        ((i, score) for i, score in enumerate(pr.flatten().tolist())),
+        key=itemgetter(1),
+        reverse=True,
+    )
+
+    # replace node number by node value
+    divranks = {nodes_list[result[0]]: result[1] for result in results}
+
+    return divranks
+
+def txt_to_keywords(filename,stop_words,window_size,nb_keywords=20,approach=3,weighted=False,end_of_line=True,dens_methode=True,inf_method=False,k_core_meth=True):
+    txt_sentences=txt_to_sentences(filename)
+    
+    clean_txt_sents=clean_text_simple_by_sents(txt_sentences, stop_words,remove_stopwords=True, pos_filtering=True, stemming=False)
+    
+    if(weighted):
+        tuples_words_sents=terms_to_graph_sents(clean_txt_sents, w=window_size,stopping_end_of_line=end_of_line)
+        G=weighted_graph(tuples_words_sents)
+        G_core_number=core_number(G)                                                    
+    else:
+        tuples_words_sents=list(terms_to_graph_sents(clean_txt_sents, w=5,stopping_end_of_line=end_of_line).keys())
+        G=unweighted_graph(tuples_words_sents)
+        
+    
+    DivRank=textacy.keyterms.rank_nodes_by_divrank(G, r=None, lambda_=0.5, alpha=0.5)
+    DivRank_keyTerms,DivRank_values=order_dict_best_keywords(DivRank,nb_keywords)
+    
+    df_results=pd.DataFrame(columns=['Div_Rank_KeyTerms','DR_values'])
+   
+    df_results['Div_Rank_KeyTerms']=DivRank_keyTerms[:nb_keywords]
+    df_results['DR_values']=DivRank_values[:nb_keywords]
+    
+    print(df_results)
+    return(df_results)
+
+if __name__ == '__main__':
+    filename="divrank_data.txt"
+    stop_words= stopwords.words('english')
+    df_test=txt_to_keywords(filename,stop_words,window_size=3,nb_keywords=20,weighted=False,end_of_line=False,dens_methode=True,inf_method=False,k_core_meth=True)
+
+INTRODUCTION
+Consider the task of recommending three restaurants to a visitor. Without any prior information, a natural strategy is to recommend the three most famous ones, all of which happen to be seafood restaurants. However, the visitor could be
+a vegetarian, could prefer Chinese food, or could be allergic to seafood. A better strategy is thus to include something different in the recommendation, even though it is not as
+famous as the seafood restaurant it has replaced. A similar situation can be found in setting up the program committee of a conference, where an ideal committee should consist of
+prestigious researchers who cover all the related areas. Many retrieval and mining tasks are concerned with finding the most important and/or relevant items from a large
+collection of data. Top ranked web pages are presented to the users of a search engine; top ranked job applicants are invited to on-site interviews; top ranked researchers are selected as the recipients of prestigious awards. Many ranking approaches have been proposed, ranging from pointwise
+weighting methods that use simple properties of each data item to network-based methods that utilize the relations among items, and to learning-to-rank methods that balance
+a lot of factors. Information networks, which characterize the relationships between the data items, have been playing an important role in these tasks. For instance, a search engine ranks web pages based on their prestige in a web hyperlink graph [14, 9]; researchers and scientific publications are
+ranked based on how well they are cited by other researchers. It is natural to assign a higher weight to data items that are referred to by many items, connected to many items, or on
+the paths between many items. These measures are known as centrality (or prestige) measures in general, with various instantiations like degree, closeness, betweenness [13], and
+more complicated measures such as the PageRank score [14] and the authority score [9]. These measures can be also combined with other features such as the relevance to a query.
+However, the information need of a user usually goes beyond prestige or centrality. The diversity in top ranked results has been recognized as another crucial criteria in ranking. The top ranked items are expected to contain as little
+redundant information as possible, cover as many aspects as possible, or be as independent as possible. The need of diversity in ranking is even more urgent when the space of
+output is limited, for example in a mobile application. Consider a toy example (illustrated in Figure 1(a)) which presents a network with 20 vertices. Vertex 1, 2, 3 and their neighbors are closely connected, while the ego-networks of
+vertex 4 and vertex 5 are loosely connected to the major community. Suppose the task is to find top-3 vertices to present the information of the whole network. If we rank the
+vertices using a prestige measure like degree or the PageRank (presented in Figure 1(b)), we can see that the top 3 ranked vertices are 1, 2, 3 respectively. All the three vertices are from the largest community and even form a clique
+by themselves. They are therefore likely to carry redundant information. Information of the two smaller communities centered at vertex 4 and vertex 5, however, does not present.
+A more desirable selection of the top-3 nodes should contain diverse information, like in Figure 1(c). Vertex 1, 5, and 4 receive the majority weight, representing the three communities. Vertex 1, which represents the largest community, is
+ranked to the top. Although vertex 2 and 3 has a higher degree than vertex 5, they are ranked lower because vertex 1 has already partially covered their information. A greedy vertex selection algorithm may achieve diversity by iteratively selecting the most prestigious vertex and
+then penalizing the vertices “covered” by the already selected ones. An example is the Maximum Marginal Relevance [3]. One may also consider first clustering the nodes (e.g., [17])
+and then selecting centroids of clusters. However, it’s difficult to predefine the number of clusters in this task. There lacks a principled objective and a unified process that automatically balances centrality and diversity.
+In this paper, we propose a novel and unified process that balances prestige and diversity in ranking, based on a timevariant random walk in the network. The proposed model,
+called DivRank (abbreviation for Diverse Rank), introduces the rich-gets-richer mechanism to PageRank style random walks with reinforcements on transition probabilities.
+In contrast to the greedy vertex selection methods, DivRank provides a unified and intuitive stochastic process, as well as a principled optimization explanation. The process is well
+connected to a number of classical models in mathematics and network science, such as the vertex-reinforced random walk, the Polya’s Urn, and the preferential attachment.
+DivRank not only has a solid theoretical foundation, but also presents a strong empirical performance. The result presented in Figure 1(c) is actually generated using DivRank.
+We compare DivRank with a number of representative methods in literature using real world datasets and tasks. In all these tasks, DivRank outperforms the state-of-the-art methods in generating diverse top ranked results.
+There are many potential applications of DivRank. The tasks presented in our experiments (i.e., ranking actors in social networks, ranking authors and publications, and text
+summarization) are by no means the only possible tasks. One may expect DivRank be applied in diversifying search results, snippet generation, keyword selection, mobile search,
+expert finding, and in various recommender systems. The rest of the paper is organized as follows. In Section 2, we briefly introduce the task of ranking in information networks. In section 3, we formally introduce DivRank, including the general form and two practical approximations. We
+then provide an analytical discussion of DivRank in Section 4, followed by a comprehensive empirical analysis in Section 5. We discuss the related work in Section 6 and
+present our conclusions in Section 7.
+
